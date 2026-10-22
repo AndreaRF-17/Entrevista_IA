@@ -24,27 +24,25 @@ if not api_key:
 # Inicializar cliente de Gemini
 client = genai.Client(api_key=api_key)
 
-# Modelos estables alternativos para evitar saturación
-MODEL_OPTIONS = ["gemini-2.5-flash", "gemini-1.5-flash"]
+# Modelo oficial actual y estable compatible con chats
+MODEL_OPTIONS = ["gemini-1.5-flash", "gemini-1.5-pro"]
 
 def crear_chat_con_fallback(system_instruction):
     ultimo_error = None
     for model_id in MODEL_OPTIONS:
-        for intento in range(2):  # Intentar 2 veces por modelo
-            try:
-                chat = client.chats.create(
-                    model=model_id,
-                    config={
-                        "system_instruction": system_instruction,
-                        "temperature": 0.3
-                    }
-                )
-                return chat
-            except Exception as e:
-                ultimo_error = e
-                time.sleep(1)  # Breve pausa antes del reintento
-                continue
-    raise Exception(f"No se pudo conectar a los modelos tras varios intentos. Error: {ultimo_error}")
+        try:
+            chat = client.chats.create(
+                model=model_id,
+                config={
+                    "system_instruction": system_instruction,
+                    "temperature": 0.3
+                }
+            )
+            return chat
+        except Exception as e:
+            ultimo_error = e
+            continue
+    raise Exception(f"No se pudo conectar a ningún modelo disponible. Error: {ultimo_error}")
 
 # ==========================================
 # INICIALIZACIÓN DE ESTADO
