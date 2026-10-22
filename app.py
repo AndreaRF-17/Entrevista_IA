@@ -1,4 +1,5 @@
 import os
+import time
 import streamlit as st
 from google import genai
 
@@ -22,24 +23,28 @@ if not api_key:
 
 # Inicializar cliente de Gemini
 client = genai.Client(api_key=api_key)
-MODEL_OPTIONS = ["gemini-3.8-flash", "gemini-1.5-flash"]
+
+# Modelos estables alternativos para evitar saturación
+MODEL_OPTIONS = ["gemini-2.5-flash", "gemini-1.5-flash"]
 
 def crear_chat_con_fallback(system_instruction):
     ultimo_error = None
     for model_id in MODEL_OPTIONS:
-        try:
-            chat = client.chats.create(
-                model=model_id,
-                config={
-                    "system_instruction": system_instruction,
-                    "temperature": 0.3
-                }
-            )
-            return chat
-        except Exception as e:
-            ultimo_error = e
-            continue
-    raise Exception(f"No se pudo conectar a ningún modelo disponible. Error: {ultimo_error}")
+        for intento in range(2):  # Intentar 2 veces por modelo
+            try:
+                chat = client.chats.create(
+                    model=model_id,
+                    config={
+                        "system_instruction": system_instruction,
+                        "temperature": 0.3
+                    }
+                )
+                return chat
+            except Exception as e:
+                ultimo_error = e
+                time.sleep(1)  # Breve pausa antes del reintento
+                continue
+    raise Exception(f"No se pudo conectar a los modelos tras varios intentos. Error: {ultimo_error}")
 
 # ==========================================
 # INICIALIZACIÓN DE ESTADO
@@ -54,7 +59,7 @@ if "chat_session" not in st.session_state:
     st.session_state.chat_session = None
 
 if "chat_history_ui" not in st.session_state:
-    st.session_state.chat_history_ui = []  # Lista de tuplas: [("assistant", "texto"), ("user", "texto")]
+    st.session_state.chat_history_ui = []
 
 # ==========================================
 # PANEL DE CONTROL Y REINICIO
@@ -122,24 +127,19 @@ if st.session_state.step == 0:
 elif 1 <= st.session_state.step <= 3:
     st.info(f"📌 **Vacante:** {st.session_state.rol} | **Pregunta técnica actual:** {st.session_state.step} de 3")
     
-    # Renderizar todo el historial visual acumulado hasta el momento
     for role, text in st.session_state.chat_history_ui:
         with st.chat_message(role):
             st.markdown(text)
             
-    # Capturar la respuesta del usuario mediante st.chat_input
     respuesta_candidato = st.chat_input("Escribe tu respuesta técnica aquí...")
     
     if respuesta_candidato:
-        # 1. Guardar y mostrar inmediatamente la respuesta del usuario en pantalla
         st.session_state.chat_history_ui.append(("user", respuesta_candidato))
         
-        # 2. Verificar si ya contestó la 3ª pregunta
         if st.session_state.step == 3:
-            st.session_state.step = 4  # Ir directamente al reporte final
+            st.session_state.step = 4
             st.rerun()
         else:
-            # 3. Incrementar el paso para la siguiente pregunta (Paso 2 o Paso 3)
             st.session_state.step += 1
             
             prompt_siguiente = (
