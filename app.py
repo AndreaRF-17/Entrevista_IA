@@ -22,7 +22,31 @@ if not api_key:
 
 # Inicializar cliente de Gemini
 client = genai.Client(api_key=api_key)
-MODEL_ID = "gemini-3.8-flash"
+
+# Lista de modelos por orden de preferencia para evitar caídas por alta demanda
+MODEL_OPTIONS = ["gemini-3.8-flash", "gemini-1.5-flash"]
+
+def crear_chat_con_fallback(system_instruction):
+    """Crea una sesión de chat intentando con los modelos disponibles"""
+    ultimo_error = None
+    for model_id in MODEL_OPTIONS:
+        try:
+            chat = client.chats.create(
+                model=model_id,
+                config={
+                    "system_instruction": system_instruction,
+                    "temperature": 0.3
+                }
+            )
+            return chat, model_id
+        except Exception as e:
+            ultimo_error = e
+            continue
+    raise Exception(f"No se pudo conectar a ningún modelo disponible. Error: {ultimo_error}")
+
+def enviar_mensaje_con_fallback(chat_session, mensaje):
+    """Envía un mensaje utilizando la sesión activa"""
+    return chat_session.send_message(mensaje)
 
 # ==========================================
 # INICIALIZACIÓN DE ESTADO
@@ -34,7 +58,7 @@ if "rol" not in st.session_state:
     st.session_state.rol = ""
 
 if "chat_session" not in st.session_state:
-    st.session_state.chat_session = None  # Objeto de chat oficial de la SDK
+    st.session_state.chat_session = None
 
 if "chat_history_ui" not in st.session_state:
     st.session_state.chat_history_ui = []
@@ -66,7 +90,6 @@ if st.session_state.step == 0:
         st.session_state.rol = rol_seleccionado
         st.session_state.step = 1
         
-        # System Instructions estrictas y Protección Anti-Jailbreak (Bloque C)
         system_instruction = (
             f"Eres un entrevistador técnico profesional, formal pero exigente, evaluando un candidato para la vacante de: {st.session_state.rol}. "
             "Tu objetivo es realizar exactamente 3 preguntas técnicas de forma secuencial, una por turno. "
@@ -77,29 +100,23 @@ if st.session_state.step == 0:
         )
         
         try:
-            # Creamos una sesión de chat persistente utilizando chats.create con system_instruction
-            st.session_state.chat_session = client.chats.create(
-                model=MODEL_ID,
-                config={
-                    "system_instruction": system_instruction,
-                    "temperature": 0.3
-                }
-            )
-            
-            # Mensaje inicial para forzar la primera pregunta
-            prompt_inicial = (
-                f"Inicia la entrevista técnica para el rol de {st.session_state.rol}. "
-                "Saluda brevemente al candidato y hazle directamente la **Pregunta Técnica #1**."
-            )
-            
-            response = st.session_state.chat_session.send_message(prompt_inicial)
-            primera_pregunta = response.text
-            
-            # Guardar en el historial visual
-            st.session_state.chat_history_ui.append({"role": "assistant", "content": primera_pregunta})
-            
+            with st.spinner("Conectando con la IA y preparando la entrevista..."):
+                chat, modelo_usado = crear_chat_con_fallback(system_instruction)
+                st.session_state.chat_session = chat
+                
+                prompt_inicial = (
+                    f"Inicia la entrevista técnica para el rol de {st.session_state.rol}. "
+                    "Saluda brevemente al candidato y hazle directamente la **Pregunta Técnica #1**."
+                )
+                
+                response = enviar_mensaje_con_fallback(st.session_state.chat_session, prompt_inicial)
+                primera_pregunta = response.text
+                
+                st.session_state.chat_history_ui.append({"role": "assistant", "content": primera_pregunta})
+                
         except Exception as e:
             st.error(f"Error al iniciar la sesión de chat con la IA: {e}")
+            st.session_state.step = 0
             st.stop()
             
         st.rerun()
@@ -110,7 +127,6 @@ if st.session_state.step == 0:
 elif 1 <= st.session_state.step <= 3:
     st.info(f"📌 **Vacante:** {st.session_state.rol} | **Pregunta técnica actual:** {st.session_state.step} de 3")
     
-    # Mostrar el historial en pantalla
     for message in st.session_state.chat_history_ui:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
@@ -118,13 +134,11 @@ elif 1 <= st.session_state.step <= 3:
     respuesta_candidato = st.chat_input("Escribe tu respuesta técnica aquí...")
     
     if respuesta_candidato:
-        # Mostrar respuesta del usuario en la UI
         st.session_state.chat_history_ui.append({"role": "user", "content": respuesta_candidato})
         with st.chat_message("user"):
             st.markdown(respuesta_candidato)
             
         if st.session_state.step == 3:
-            # Al responder la 3ª pregunta, pasamos al reporte final
             st.session_state.step = 4
             st.rerun()
         else:
@@ -138,7 +152,7 @@ elif 1 <= st.session_state.step <= 3:
             
             try:
                 with st.spinner("Analizando respuesta y formulando siguiente pregunta..."):
-                    response = st.session_state.chat_session.send_message(prompt_siguiente)
+                    response = enviar_mensaje_con_fallback(st.session_state.chat_session, prompt_siguiente)
                 
                 nueva_pregunta = response.text
                 st.session_state.chat_history_ui.append({"role": "assistant", "content": nueva_pregunta})
@@ -174,7 +188,7 @@ elif st.session_state.step == 4:
     if "reporte_generado" not in st.session_state:
         try:
             with st.spinner("Generando reporte de evaluación con IA..."):
-                response = st.session_state.chat_session.send_message(prompt_reporte)
+                response = enviar_mensaje_con_fallback(st.session_state.chat_session, prompt_reporte)
                 st.session_state.reporte_generado = response.text
         except Exception as e:
             st.error(f"Error al generar el reporte final: {e}")
