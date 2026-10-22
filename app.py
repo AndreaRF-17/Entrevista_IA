@@ -22,7 +22,7 @@ if not api_key:
 
 # Inicializar cliente de Gemini
 client = genai.Client(api_key=api_key)
-MODEL_ID = "gemini-2.5-flash"
+MODEL_ID = "gemini-3.8-flash"  # <--- Modelo actualizado
 
 # ==========================================
 # BLOQUE B & C: INICIALIZACIÓN DE ESTADO
@@ -77,15 +77,12 @@ if st.session_state.step == 0:
             "Nunca salgas de tu rol de entrevistador técnico."
         )
         
-        # Inicializar el chat con las instrucciones del sistema mediante system_instruction
-        # Generar la primera pregunta adaptada al rol
         prompt_inicial = (
             f"Inicia la entrevista técnica para el rol de {st.session_state.rol}. "
             "Saluda brevemente al candidato y hazle directamente la **Pregunta Técnica #1**."
         )
         
         try:
-            # Creamos la sesión o enviamos el contexto inicial usando contents y system_instruction en config
             response = client.models.generate_content(
                 model=MODEL_ID,
                 contents=prompt_inicial,
@@ -112,28 +109,23 @@ if st.session_state.step == 0:
 elif 1 <= st.session_state.step <= 3:
     st.info(f"📌 **Vacante:** {st.session_state.rol} | **Pregunta técnica actual:** {st.session_state.step} de 3")
     
-    # Mostrar historial de la conversación en pantalla
     for message in st.session_state.chat_history_ui:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
             
-    # Entrada de respuesta del usuario
     respuesta_candidato = st.chat_input("Escribe tu respuesta técnica aquí...")
     
     if respuesta_candidato:
-        # Mostrar respuesta del usuario inmediatamente en la UI
         st.session_state.chat_history_ui.append({"role": "user", "content": respuesta_candidato})
         st.session_state.messages.append({"role": "user", "parts": [respuesta_candidato]})
         
         with st.chat_message("user"):
             st.markdown(respuesta_candidato)
             
-        # Evaluar si estamos en la 3.ª respuesta para pasar a la fase de evaluación
         if st.session_state.step == 3:
-            st.session_state.step = 4  # Activar fase de reporte final
+            st.session_state.step = 4
             st.rerun()
         else:
-            # Avanzar al siguiente turno de pregunta adaptativa (Bloque B)
             st.session_state.step += 1
             
             prompt_siguiente = (
@@ -178,7 +170,6 @@ elif st.session_state.step == 4:
     st.subheader("📋 Evaluación y Reporte Final de la Entrevista")
     st.success("¡La entrevista ha concluido exitosamente! A continuación se presenta el dictamen técnico.")
     
-    # Mostrar el historial de la conversación resumido
     with st.expander("Ver historial de la entrevista"):
         for message in st.session_state.chat_history_ui:
             if message["role"] == "assistant":
@@ -186,7 +177,6 @@ elif st.session_state.step == 4:
             else:
                 st.markdown(f"**Candidato:** {message['content']}")
                 
-    # Generar reporte estructurado en Markdown exigido por el Bloque D
     prompt_reporte = (
         "La entrevista técnica de 3 preguntas ha finalizado. Analiza todas las respuestas del candidato "
         "y genera un reporte estructurado estrictamente en Markdown que contenga los siguientes apartados:\n"
@@ -209,11 +199,9 @@ elif st.session_state.step == 4:
             st.error(f"Error al generar el reporte final: {e}")
             st.session_state.reporte_generado = "No se pudo generar el reporte."
             
-    # Mostrar el reporte en Markdown
     st.markdown(st.session_state.reporte_generado)
     
     if st.button("🔄 Realizar Nueva Entrevista"):
-        # Limpiar todo para reiniciar
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
